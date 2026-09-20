@@ -1,0 +1,602 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mini Audio Editor | CSE220 Project</title>
+
+    <!-- WaveSurfer.js v6 for better compatibility -->
+    <script src="https://unpkg.com/wavesurfer.js@6.6.4/dist/wavesurfer.min.js"></script>
+    <script src="https://unpkg.com/wavesurfer.js@6.6.4/dist/plugin/wavesurfer.regions.min.js"></script>
+
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="app-container">
+
+        <!-- Menu Bar (File / Edit / Effects / View / Help) -->
+        <header class="menu-bar">
+            <div class="menu-bar-left">
+                <span class="app-title-mark">Mini Audio Editor</span>
+
+                <nav class="menu-nav" id="menuNav">
+                    <div class="menu-item" data-menu="file">
+                        <button class="menu-trigger">File</button>
+                        <div class="menu-dropdown">
+                            <button class="menu-option" id="menuLoadAudio">
+                                <span class="menu-option-icon icon-folder"></span>
+                                <span id="menuLoadAudioLabel">Load Audio File</span>
+                            </button>
+                            <button class="menu-option" id="menuJoinAudio" disabled>
+                                <span class="menu-option-icon icon-link"></span> Join Audio to Selected Track…
+                            </button>
+                            <div class="menu-divider"></div>
+                            <button class="menu-option" id="menuNewSession" disabled>
+                                <span class="menu-option-icon icon-reset"></span> New Session (Clear All Tracks)
+                            </button>
+                            <div class="menu-divider"></div>
+                            <button class="menu-option" id="menuExport" disabled>
+                                <span class="menu-option-icon icon-save"></span> Export Selected Track (WAV)
+                            </button>
+                            <button class="menu-option" id="menuExportMix" disabled>
+                                <span class="menu-option-icon icon-save"></span> Export Mixdown (All Tracks)
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="menu-item" data-menu="edit">
+                        <button class="menu-trigger">Edit</button>
+                        <div class="menu-dropdown">
+                            <button class="menu-option" id="menuUndo" disabled>
+                                <span class="menu-option-icon">↶</span>
+                                <span id="menuUndoLabel">Undo</span>
+                            </button>
+                            <button class="menu-option" id="menuRedo" disabled>
+                                <span class="menu-option-icon">↷</span>
+                                <span id="menuRedoLabel">Redo</span>
+                            </button>
+                            <div class="menu-divider"></div>
+                            <button class="menu-option" id="menuTrim" disabled>
+                                <span class="menu-option-icon icon-scissors"></span> Trim to Selection
+                            </button>
+                            <button class="menu-option" id="menuReverseAll" disabled>
+                                <span class="menu-option-icon icon-reverse"></span> Reverse All
+                            </button>
+                            <button class="menu-option" id="menuReverseSelection" disabled>
+                                <span class="menu-option-icon icon-reverse"></span> Reverse Selection
+                            </button>
+                            <div class="menu-divider"></div>
+                            <button class="menu-option" id="menuReset" disabled>
+                                <span class="menu-option-icon icon-reset"></span> Reset to Original
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="menu-item" data-menu="effects">
+                        <button class="menu-trigger">Effects</button>
+                        <div class="menu-dropdown menu-dropdown-scroll">
+                            <button class="menu-option" data-panel="panel-gain" disabled>Gain</button>
+                            <button class="menu-option" data-panel="panel-fade" disabled>Fade In / Out</button>
+                            <button class="menu-option" data-panel="panel-normalize" disabled>Normalize</button>
+                            <button class="menu-option" data-panel="panel-invert" disabled>Invert</button>
+                            <div class="menu-divider"></div>
+                            <button class="menu-option" data-panel="panel-eq" disabled>3-Band EQ</button>
+                            <button class="menu-option" data-panel="panel-paragraphic-eq" disabled>Paragraphic EQ</button>
+                            <button class="menu-option" data-panel="panel-graphic-eq" disabled>Graphic EQ</button>
+                            <button class="menu-option" data-panel="panel-graphic-eq-20" disabled>Graphic EQ (20 bands)</button>
+                            <button class="menu-option" data-panel="panel-compressor" disabled>Compressor</button>
+                            <button class="menu-option" data-panel="panel-limiter" disabled>Hard Limiter</button>
+                            <div class="menu-divider"></div>
+                            <button class="menu-option" data-panel="panel-echo" disabled>Echo</button>
+                            <button class="menu-option" data-panel="panel-delay" disabled>Delay</button>
+                            <button class="menu-option" data-panel="panel-reverb" disabled>Reverb</button>
+                            <button class="menu-option" data-panel="panel-distortion" disabled>Distortion</button>
+                            <div class="menu-divider"></div>
+                            <button class="menu-option" data-panel="panel-audio-repair" disabled>Audio Repair</button>
+                            <button class="menu-option" data-panel="panel-speed" disabled>Speed / Pitch</button>
+                            <button class="menu-option" data-panel="panel-silence" disabled>Remove Silence</button>
+                            <button class="menu-option" data-panel="panel-noise" disabled>Noise Reduction (Voice)</button>
+                        </div>
+                    </div>
+
+                    <div class="menu-item" data-menu="view">
+                        <button class="menu-trigger">View</button>
+                        <div class="menu-dropdown">
+                            <button class="menu-option" id="menuToggleCompare" disabled>
+                                <span class="menu-option-icon icon-compare"></span> Compare with Original
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="menu-item" data-menu="help">
+                        <button class="menu-trigger">Help</button>
+                        <div class="menu-dropdown">
+                            <button class="menu-option" id="menuAbout">
+                                <span class="menu-option-icon icon-info"></span> About this project
+                            </button>
+                        </div>
+                    </div>
+                </nav>
+            </div>
+
+            <div class="menu-bar-right">
+                <span class="badge">CSE220 · Manual DSP</span>
+            </div>
+        </header>
+
+        <!-- Transport Bar (playback + selection readout, AudioMass-style) -->
+        <div class="transport-bar" id="transportBar">
+            <div class="transport-clock">
+                <span id="transportTime">0:00</span>
+                <span class="transport-clock-sep">/</span>
+                <span id="transportTotal">0:00</span>
+            </div>
+
+            <div class="transport-controls">
+                <button class="transport-btn" id="playBtn" title="Play / Pause" disabled>
+                    <span id="playBtnIcon">▶</span>
+                </button>
+                <button class="transport-btn" id="stopBtn" title="Stop" disabled>■</button>
+            </div>
+
+            <div class="transport-selection">
+                <span class="transport-label">Selection <span id="selTrackName" class="transport-track-name"></span>:</span>
+                <span class="transport-field">Start: <b id="selStart">–</b></span>
+                <span class="transport-field">End: <b id="selEnd">–</b></span>
+                <span class="transport-field">Duration: <b id="selDuration">–</b></span>
+                <button class="transport-clear-btn" id="clearSelectionBtn" disabled>Clear selection</button>
+            </div>
+        </div>
+
+        <!-- Multi-track stage: one lane per track (rendered by JS into
+             #trackList), a shared transport bar above driving all tracks
+             at once, and one shared playhead line drawn across every
+             lane (matching a single vertical position line spanning
+             all tracks, not a separate playhead per track). -->
+        <main class="stage">
+            <div class="waveform-stage" id="waveformStage">
+                <div class="waveform-placeholder" id="waveformPlaceholder">
+                    <p>Drag &amp; drop an audio file, or</p>
+                    <button class="btn btn-primary" id="loadAudioBtn">
+                        <span class="btn-icon icon-folder"></span> Load Audio File
+                    </button>
+                    <input type="file" id="audioFile" accept="audio/*" style="display: none;">
+                    <input type="file" id="joinFile" accept="audio/*" style="display: none;">
+                </div>
+
+                <div class="track-list-wrapper">
+                    <div class="track-list" id="trackList" style="display: none;">
+                        <!-- One .track-lane per track, appended/removed by JS
+                             (renderTrackList() in app.js). Each lane owns its
+                             own waveform container, original-comparison
+                             sub-lane (toggleable), and a header with
+                             name/color/mute/select. -->
+                    </div>
+                    <div class="shared-playhead" id="sharedPlayhead"></div>
+                </div>
+
+                <button class="btn btn-add-track" id="addTrackBtn" style="display: none;">
+                    <span class="btn-icon icon-folder"></span> Add Track
+                </button>
+
+                <div class="audio-meta-strip" id="audioMetaStrip" style="display: none;"></div>
+            </div>
+        </main>
+
+        <!-- Effect panel modal: one panel visible at a time, opened from the
+             Effects menu. Centered over a dimmed/blurred backdrop covering
+             the whole app -- not docked to any edge -- so Effects always
+             appear as a focused overlay rather than a persistent side panel. -->
+        <div class="effect-modal-backdrop" id="effectModalBackdrop" style="display: none;">
+            <div class="effect-modal" id="effectDock" role="dialog" aria-modal="true" aria-labelledby="effectDockTitle">
+                <div class="effect-dock-header">
+                    <span id="effectDockTitle">Effect</span>
+                    <button class="effect-dock-close" id="effectDockClose">✕</button>
+                </div>
+                <div class="effect-dock-body" id="effectDockBody">
+                    <!-- Panels below are moved into the dock body by JS when opened -->
+                </div>
+            </div>
+        </div>
+
+        <!-- ================================================================
+             Effect panels (hidden templates, shown one at a time in the dock)
+             ================================================================ -->
+        <div class="effect-panels" id="effectPanels" style="display:none;">
+
+            <div class="effect-panel" id="panel-gain">
+                <div class="slider-control">
+                    <label for="gainSlider">Gain: <span id="gainValue">0</span> dB</label>
+                    <input type="range" id="gainSlider" min="-20" max="20" step="0.5" value="0">
+                </div>
+                <div class="preset-row">
+                    <select id="gainPresets" class="preset-select">
+                        <option value="" selected disabled>Presets</option>
+                        <option value="silence">Silence</option>
+                        <option value="-12">-12 dB</option>
+                        <option value="-6">-6 dB</option>
+                        <option value="-3">-3 dB</option>
+                        <option value="3">+3 dB</option>
+                        <option value="6">+6 dB</option>
+                        <option value="12">+12 dB</option>
+                    </select>
+                </div>
+                <button class="btn btn-apply" id="applyGainBtn">Apply</button>
+            </div>
+
+            <div class="effect-panel" id="panel-fade">
+                <div class="slider-control">
+                    <label for="fadeDuration">Duration: <span id="fadeDurationValue">0.5</span>s</label>
+                    <input type="range" id="fadeDuration" min="0.1" max="5.0" step="0.1" value="0.5">
+                </div>
+                <div class="slider-control">
+                    <label for="fadeCurve">Curve:</label>
+                    <select id="fadeCurve">
+                        <option value="cosine">Smooth (Cosine)</option>
+                        <option value="linear">Linear</option>
+                    </select>
+                </div>
+                <div class="effect-panel-actions">
+                    <button class="btn btn-apply" id="applyFadeInBtn">Fade In</button>
+                    <button class="btn btn-apply" id="applyFadeOutBtn">Fade Out</button>
+                </div>
+            </div>
+
+            <div class="effect-panel" id="panel-normalize">
+                <p class="effect-panel-desc">Scales the whole clip so its peak (or RMS) hits a target level — the inverse problem to Gain.</p>
+                <div class="slider-control">
+                    <label for="normTarget">Target: <span id="normTargetValue">-1.0</span> dB</label>
+                    <input type="range" id="normTarget" min="-24" max="0" step="0.5" value="-1.0">
+                </div>
+                <div class="slider-control">
+                    <label for="normMode">Mode:</label>
+                    <select id="normMode">
+                        <option value="peak">Peak</option>
+                        <option value="rms">RMS</option>
+                    </select>
+                </div>
+                <button class="btn btn-apply" id="applyNormalizeBtn">Apply</button>
+            </div>
+
+            <div class="effect-panel" id="panel-invert">
+                <p class="effect-panel-desc">Flips every sample's sign: y[n] = −x[n]. No parameters — applies instantly.</p>
+                <button class="btn btn-apply" id="applyInvertBtn">Apply Invert</button>
+            </div>
+
+            <div class="effect-panel highlight" id="panel-eq">
+                <p class="effect-panel-desc">Manual 2nd-order recursive (biquad) filter, 3 bands in series.</p>
+                <div class="slider-control">
+                    <label for="eqLowGain">Low (250 Hz): <span id="eqLowGainValue">0</span> dB</label>
+                    <input type="range" id="eqLowGain" min="-12" max="12" step="0.5" value="0">
+                </div>
+                <div class="slider-control">
+                    <label for="eqMidGain">Mid (1000 Hz): <span id="eqMidGainValue">0</span> dB</label>
+                    <input type="range" id="eqMidGain" min="-12" max="12" step="0.5" value="0">
+                </div>
+                <div class="slider-control">
+                    <label for="eqHighGain">High (4000 Hz): <span id="eqHighGainValue">0</span> dB</label>
+                    <input type="range" id="eqHighGain" min="-12" max="12" step="0.5" value="0">
+                </div>
+                <div class="preset-row">
+                    <select id="eqPresets" class="preset-select">
+                        <option value="" selected disabled>Presets</option>
+                        <option value="flat">Reset (Flat)</option>
+                        <option value="bass_boost">Bass Boost</option>
+                        <option value="treble_boost">Treble Boost</option>
+                        <option value="vocal_clarity">Vocal Clarity</option>
+                        <option value="podcast">Podcast</option>
+                        <option value="warm">Warm</option>
+                        <option value="bright">Bright</option>
+                        <option value="v_shape">V-Shape</option>
+                        <option value="telephone">Old Telephone</option>
+                    </select>
+                </div>
+                <button class="btn btn-apply btn-highlight" id="applyEqBtn">Apply EQ</button>
+            </div>
+
+            <div class="effect-panel highlight" id="panel-paragraphic-eq">
+                <p class="effect-panel-desc">Chain of biquad bands (highpass / lowpass / peaking). Drag a node to change its frequency and gain; use the row below to fine-tune Q.</p>
+
+                <div class="pgeq-graph-wrap">
+                    <svg id="pgeqGraph" class="pgeq-graph" viewBox="0 0 560 220" preserveAspectRatio="none"></svg>
+                </div>
+
+                <div id="pgeqBandRows" class="pgeq-band-rows"></div>
+
+                <div class="pgeq-band-actions">
+                    <button class="btn" id="pgeqAddBandBtn">+ Add Band</button>
+                </div>
+
+                <div class="preset-row">
+                    <select id="pgeqPresets" class="preset-select">
+                        <option value="" selected disabled>Presets</option>
+                        <option value="flat">Reset (Flat)</option>
+                        <option value="old_telephone">Old Telephone</option>
+                        <option value="am_radio">AM Radio</option>
+                        <option value="megaphone">Megaphone</option>
+                        <option value="underwater">Underwater</option>
+                        <option value="lofi_vintage">Lo-Fi / Vintage</option>
+                        <option value="bass_boost">Bass Boost</option>
+                        <option value="vocal_presence">Vocal Presence</option>
+                    </select>
+                </div>
+                <button class="btn btn-apply btn-highlight" id="applyPgeqBtn">Apply EQ</button>
+            </div>
+
+            <div class="effect-panel highlight" id="panel-graphic-eq">
+                <p class="effect-panel-desc">10-band graphic EQ (lowshelf + peaking + highshelf biquad chain, fixed frequencies).</p>
+                <div id="geq10Faders" class="geq-faders"></div>
+                <div class="preset-row">
+                    <select id="geq10Presets" class="preset-select">
+                        <option value="" selected disabled>Presets</option>
+                        <option value="reset">Reset</option>
+                        <option value="bass_boost">Bass Boost</option>
+                        <option value="treble_boost">Treble Boost</option>
+                        <option value="vocal_clarity">Vocal Clarity</option>
+                        <option value="podcast">Podcast</option>
+                        <option value="warm">Warm</option>
+                        <option value="bright">Bright</option>
+                        <option value="v_shape">V-Shape</option>
+                        <option value="loudness">Loudness</option>
+                    </select>
+                </div>
+                <button class="btn btn-apply btn-highlight" id="applyGeq10Btn">Apply EQ</button>
+            </div>
+
+            <div class="effect-panel highlight" id="panel-graphic-eq-20">
+                <p class="effect-panel-desc">20-band graphic EQ (lowshelf + peaking + highshelf biquad chain, fixed frequencies, finer control).</p>
+                <div id="geq20Faders" class="geq-faders geq-faders-20"></div>
+                <div class="preset-row">
+                    <select id="geq20Presets" class="preset-select">
+                        <option value="" selected disabled>Presets</option>
+                        <option value="reset">Reset</option>
+                        <option value="bass_boost">Bass Boost</option>
+                        <option value="treble_boost">Treble Boost</option>
+                        <option value="vocal_clarity">Vocal Clarity</option>
+                        <option value="podcast">Podcast</option>
+                        <option value="warm">Warm</option>
+                        <option value="bright">Bright</option>
+                        <option value="v_shape">V-Shape</option>
+                        <option value="loudness">Loudness</option>
+                    </select>
+                </div>
+                <button class="btn btn-apply btn-highlight" id="applyGeq20Btn">Apply EQ</button>
+            </div>
+
+            <div class="effect-panel highlight" id="panel-audio-repair">
+                <p class="effect-panel-desc">Detect and smooth over clicks, hum, or edit-point splices.</p>
+
+                <div class="repair-mode-row">
+                    <label class="radio-pill"><input type="radio" name="repairMode" value="declick" checked> Click Reduction</label>
+                    <label class="radio-pill"><input type="radio" name="repairMode" value="hum"> Hum Reduction</label>
+                    <label class="radio-pill"><input type="radio" name="repairMode" value="edit"> Edit Repair</label>
+                </div>
+
+                <div id="repairSensitivityRow" class="repair-mode-row">
+                    <label class="effect-panel-desc" style="margin:0;">Sensitivity</label>
+                    <label class="radio-pill"><input type="radio" name="repairSensitivity" value="low"> Low</label>
+                    <label class="radio-pill"><input type="radio" name="repairSensitivity" value="medium" checked> Medium</label>
+                    <label class="radio-pill"><input type="radio" name="repairSensitivity" value="high"> High</label>
+                </div>
+
+                <div id="repairHumRow" class="repair-mode-row" style="display:none;">
+                    <label class="effect-panel-desc" style="margin:0;">Hum frequency</label>
+                    <label class="radio-pill"><input type="radio" name="repairHumMode" value="auto" checked> Auto-detect</label>
+                    <label class="radio-pill"><input type="radio" name="repairHumMode" value="50"> 50 Hz</label>
+                    <label class="radio-pill"><input type="radio" name="repairHumMode" value="60"> 60 Hz</label>
+                </div>
+
+                <p id="repairModeDesc" class="effect-panel-desc">Removes short transient clicks (vinyl pops, mouth clicks) by detecting energy spikes and interpolating across them.</p>
+
+                <button class="btn btn-apply btn-highlight" id="applyRepairBtn">Apply</button>
+            </div>
+
+            <div class="effect-panel highlight" id="panel-compressor">
+                <p class="effect-panel-desc">Manual soft-knee gain computer + attack/release envelope.</p>
+                <div class="slider-control">
+                    <label for="compThreshold">Threshold: <span id="compThresholdValue">-24</span> dB</label>
+                    <input type="range" id="compThreshold" min="-60" max="0" step="1" value="-24">
+                </div>
+                <div class="slider-control">
+                    <label for="compRatio">Ratio: <span id="compRatioValue">4</span>:1</label>
+                    <input type="range" id="compRatio" min="1" max="20" step="0.5" value="4">
+                </div>
+                <div class="slider-control">
+                    <label for="compAttack">Attack: <span id="compAttackValue">5</span> ms</label>
+                    <input type="range" id="compAttack" min="0.5" max="100" step="0.5" value="5">
+                </div>
+                <div class="slider-control">
+                    <label for="compRelease">Release: <span id="compReleaseValue">100</span> ms</label>
+                    <input type="range" id="compRelease" min="10" max="1000" step="10" value="100">
+                </div>
+                <div class="preset-row">
+                    <select id="compPresets" class="preset-select">
+                        <option value="" selected disabled>Presets</option>
+                        <option value="vocal_lead">Vocal — Lead</option>
+                        <option value="vocal_broadcast">Vocal — Broadcast</option>
+                        <option value="drum_bus_glue">Drum Bus Glue</option>
+                        <option value="snare_punch">Snare Punch</option>
+                        <option value="master_gentle">Master — Gentle</option>
+                        <option value="limiter_style">Limiter-style</option>
+                    </select>
+                </div>
+                <button class="btn btn-apply btn-highlight" id="applyCompressorBtn">Apply Compressor</button>
+            </div>
+
+            <div class="effect-panel highlight" id="panel-limiter">
+                <p class="effect-panel-desc">Manual brickwall limiter: instant-attack, released peak-envelope gain.</p>
+                <div class="slider-control">
+                    <label for="limitCeiling">Ceiling: <span id="limitCeilingValue">-0.3</span> dB</label>
+                    <input type="range" id="limitCeiling" min="-6" max="0" step="0.1" value="-0.3">
+                </div>
+                <div class="slider-control">
+                    <label for="limitRelease">Release: <span id="limitReleaseValue">50</span> ms</label>
+                    <input type="range" id="limitRelease" min="5" max="500" step="5" value="50">
+                </div>
+                <button class="btn btn-apply btn-highlight" id="applyLimiterBtn">Apply Limiter</button>
+            </div>
+
+            <div class="effect-panel highlight" id="panel-echo">
+                <p class="effect-panel-desc">Manual convolution with an echo impulse response (LTI system).</p>
+                <div class="slider-control">
+                    <label for="echoDelay">Delay: <span id="echoDelayValue">200</span> ms</label>
+                    <input type="range" id="echoDelay" min="50" max="1000" step="10" value="200">
+                </div>
+                <div class="slider-control">
+                    <label for="echoDecay">Decay: <span id="echoDecayValue">0.5</span></label>
+                    <input type="range" id="echoDecay" min="0.1" max="0.9" step="0.05" value="0.5">
+                </div>
+                <div class="slider-control">
+                    <label for="echoCount">Echoes: <span id="echoCountValue">3</span></label>
+                    <input type="range" id="echoCount" min="1" max="8" step="1" value="3">
+                </div>
+                <button class="btn btn-apply btn-highlight" id="applyEchoBtn">Apply Echo</button>
+            </div>
+
+            <div class="effect-panel highlight" id="panel-delay">
+                <p class="effect-panel-desc">Manual single-tap delay line via direct sample-index recursion (distinct from Echo's convolution route).</p>
+                <div class="slider-control">
+                    <label for="delayTime">Delay: <span id="delayTimeValue">300</span> ms</label>
+                    <input type="range" id="delayTime" min="10" max="2000" step="10" value="300">
+                </div>
+                <div class="slider-control">
+                    <label for="delayFeedback">Feedback: <span id="delayFeedbackValue">0.3</span></label>
+                    <input type="range" id="delayFeedback" min="0" max="0.9" step="0.05" value="0.3">
+                </div>
+                <div class="slider-control">
+                    <label for="delayMix">Mix: <span id="delayMixValue">0.5</span></label>
+                    <input type="range" id="delayMix" min="0" max="1" step="0.05" value="0.5">
+                </div>
+                <div class="preset-row">
+                    <select id="delayPresets" class="preset-select">
+                        <option value="" selected disabled>Presets</option>
+                        <option value="slap">Slap</option>
+                        <option value="quarter_note">Quarter Note (120bpm)</option>
+                        <option value="eighth_note">Eighth Note (120bpm)</option>
+                        <option value="ping_pong_short">Short Echo</option>
+                        <option value="long_wash">Long Wash</option>
+                    </select>
+                </div>
+                <button class="btn btn-apply btn-highlight" id="applyDelayBtn">Apply Delay</button>
+            </div>
+
+            <div class="effect-panel highlight" id="panel-reverb">
+                <p class="effect-panel-desc">Manual convolution with a synthetic decaying-noise impulse.</p>
+                <div class="slider-control">
+                    <label for="reverbDuration">Room Size: <span id="reverbDurationValue">1.5</span> s</label>
+                    <input type="range" id="reverbDuration" min="0.2" max="4.0" step="0.1" value="1.5">
+                </div>
+                <div class="slider-control">
+                    <label for="reverbDecay">Decay: <span id="reverbDecayValue">2.0</span></label>
+                    <input type="range" id="reverbDecay" min="0.5" max="6.0" step="0.1" value="2.0">
+                </div>
+                <div class="slider-control">
+                    <label for="reverbMix">Mix: <span id="reverbMixValue">0.3</span></label>
+                    <input type="range" id="reverbMix" min="0" max="1" step="0.05" value="0.3">
+                </div>
+                <div class="preset-row">
+                    <select id="reverbPresets" class="preset-select">
+                        <option value="" selected disabled>Presets</option>
+                        <option value="small_room">Small Room</option>
+                        <option value="medium_room">Medium Room</option>
+                        <option value="large_hall">Large Hall</option>
+                        <option value="cathedral">Cathedral</option>
+                        <option value="plate">Plate</option>
+                        <option value="vocal_booth">Vocal Booth</option>
+                        <option value="ambient_wash">Ambient Wash</option>
+                        <option value="tight_slap">Tight Slap</option>
+                    </select>
+                </div>
+                <button class="btn btn-apply btn-highlight" id="applyReverbBtn">Apply Reverb</button>
+            </div>
+
+            <div class="effect-panel highlight" id="panel-distortion">
+                <p class="effect-panel-desc">Manual waveshaping: soft (cubic) or hard clip curve, sample-by-sample.</p>
+                <div class="slider-control">
+                    <label for="distDrive">Drive: <span id="distDriveValue">12</span> dB</label>
+                    <input type="range" id="distDrive" min="0" max="36" step="1" value="12">
+                </div>
+                <div class="slider-control">
+                    <label for="distMode">Curve:</label>
+                    <select id="distMode">
+                        <option value="soft">Soft (cubic)</option>
+                        <option value="hard">Hard clip</option>
+                    </select>
+                </div>
+                <div class="preset-row">
+                    <select id="distPresets" class="preset-select">
+                        <option value="" selected disabled>Presets</option>
+                        <option value="subtle_warmth">Subtle Warmth</option>
+                        <option value="crunch">Crunch</option>
+                        <option value="fuzz">Fuzz</option>
+                        <option value="broken_speaker">Broken Speaker</option>
+                    </select>
+                </div>
+                <button class="btn btn-apply btn-highlight" id="applyDistortionBtn">Apply Distortion</button>
+            </div>
+
+            <div class="effect-panel highlight" id="panel-speed">
+                <p class="effect-panel-desc">Manual linear-interpolation resampling — changes speed and pitch together, like a turntable speed knob. Changes clip duration.</p>
+                <div class="slider-control">
+                    <label for="speedFactor">Speed: <span id="speedFactorValue">1.0</span>×</label>
+                    <input type="range" id="speedFactor" min="0.25" max="3.0" step="0.05" value="1.0">
+                </div>
+                <div class="preset-row">
+                    <select id="speedPresets" class="preset-select">
+                        <option value="" selected disabled>Presets</option>
+                        <option value="0.5">Half Speed (0.5×)</option>
+                        <option value="0.75">Slightly Slower (0.75×)</option>
+                        <option value="0.9">Slightly Slower (0.9×)</option>
+                        <option value="1.1">Slightly Faster (1.1×)</option>
+                        <option value="1.25">Slightly Faster (1.25×)</option>
+                        <option value="2.0">Double Speed (2.0×)</option>
+                    </select>
+                </div>
+                <button class="btn btn-apply btn-highlight" id="applySpeedBtn">Apply Speed Change</button>
+            </div>
+
+            <div class="effect-panel highlight" id="panel-silence">
+                <p class="effect-panel-desc">Manual frame-energy thresholding — shortens long silent gaps. Changes clip duration.</p>
+                <div class="slider-control">
+                    <label for="silenceThreshold">Threshold: <span id="silenceThresholdValue">-40</span> dB</label>
+                    <input type="range" id="silenceThreshold" min="-70" max="-10" step="1" value="-40">
+                </div>
+                <div class="slider-control">
+                    <label for="silenceMinGap">Min gap: <span id="silenceMinGapValue">300</span> ms</label>
+                    <input type="range" id="silenceMinGap" min="50" max="2000" step="50" value="300">
+                </div>
+                <div class="slider-control">
+                    <label for="silencePadding">Padding: <span id="silencePaddingValue">50</span> ms</label>
+                    <input type="range" id="silencePadding" min="0" max="500" step="10" value="50">
+                </div>
+                <button class="btn btn-apply btn-highlight" id="applySilenceBtn">Remove Silence</button>
+            </div>
+
+            <div class="effect-panel highlight" id="panel-noise">
+                <p class="effect-panel-desc">Manual STFT spectral subtraction: Hann-windowed FFT frames, subtract an estimated noise floor, phase-preserving overlap-add reconstruction.</p>
+                <div class="slider-control">
+                    <label for="noiseSample">Noise sample (from start): <span id="noiseSampleValue">0.5</span>s</label>
+                    <input type="range" id="noiseSample" min="0.1" max="3.0" step="0.1" value="0.5">
+                </div>
+                <div class="slider-control">
+                    <label for="noiseReduction">Reduction: <span id="noiseReductionValue">12</span> dB</label>
+                    <input type="range" id="noiseReduction" min="0" max="30" step="1" value="12">
+                </div>
+                <button class="btn btn-apply btn-highlight" id="applyNoiseBtn">Apply Noise Reduction</button>
+            </div>
+
+        </div>
+
+        <!-- Status/Loading Indicator -->
+        <div id="loadingOverlay" class="loading-overlay" style="display: none;">
+            <div class="spinner"></div>
+            <p id="loadingMessage">Processing...</p>
+        </div>
+
+        <!-- Toast Notifications -->
+        <div id="toast" class="toast"></div>
+    </div>
+
+    <script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>
