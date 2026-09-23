@@ -103,7 +103,11 @@
                         <button class="menu-trigger">View</button>
                         <div class="menu-dropdown">
                             <button class="menu-option" id="menuToggleCompare" disabled>
-                                <span class="menu-option-icon icon-compare"></span> Compare with Original
+                                <span class="menu-option-icon icon-compare"></span> Show Original Lane
+                            </button>
+                            <button class="menu-option menu-option-active" id="menuAmplitudeScale">
+                                <span class="menu-option-icon icon-compare"></span>
+                                <span id="menuAmplitudeScaleLabel">Amplitude Scale: Absolute (−1…+1)</span>
                             </button>
                         </div>
                     </div>
@@ -165,6 +169,9 @@
                 </div>
 
                 <div class="track-list-wrapper">
+                    <!-- Shared time axis for every lane below. Clicking it
+                         (or any lane) moves the playback marker. -->
+                    <div class="timeline-ruler" id="timelineRuler" style="display: none;"></div>
                     <div class="track-list" id="trackList" style="display: none;">
                         <!-- One .track-lane per track, appended/removed by JS
                              (renderTrackList() in app.js). Each lane owns its

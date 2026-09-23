@@ -415,6 +415,43 @@ body {
     position: relative;
 }
 
+/* Shared time axis above every lane. Clicking anywhere on it moves the
+   playback marker (wireSeekOnElement() in app.js), the same as clicking
+   a lane -- so the ruler doubles as a scrub bar. */
+.timeline-ruler {
+    position: relative;
+    height: 22px;
+    margin-bottom: var(--spacing-sm);
+    border-bottom: 1px solid var(--border-color);
+    cursor: pointer;
+}
+
+.ruler-tick {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+}
+
+.ruler-tick i {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    width: 1px;
+    height: 6px;
+    background: var(--border-color-strong);
+}
+
+.ruler-tick b {
+    position: absolute;
+    bottom: 7px;
+    left: 2px;
+    font-size: 0.625rem;
+    font-weight: 500;
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
 .track-list {
     display: flex;
     flex-direction: column;
@@ -561,6 +598,161 @@ body {
     position: relative;
 }
 
+/* ----------------------------------------------------------------------
+   Signal stack: edited (y[n]) directly above original (x[n])
+   ----------------------------------------------------------------------
+   A .signal-row always spans the FULL session timeline; the .wave-clip
+   inside it is positioned/sized by layoutTrackLanes() to the slice of
+   that timeline the audio really occupies. Both rows therefore share one
+   time axis (so the shared marker is correct in both) and, with the
+   absolute amplitude scale, one amplitude axis -- which is what makes
+   the effect of a DSP operation readable straight off the screen. */
+.signal-row {
+    position: relative;
+    background: var(--bg-void);
+    border-top: 1px solid var(--border-color);
+    cursor: pointer;   /* click = move the playback marker */
+}
+
+.signal-row-edited {
+    height: 90px;
+}
+
+.signal-row-original {
+    /* Same height as .signal-row-edited on purpose -- equal pixels per
+       unit of amplitude is what makes the two lanes comparable. */
+    height: 90px;
+    background: #101016;
+}
+
+.wave-clip {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    overflow: hidden;
+}
+
+.signal-row-tag {
+    position: absolute;
+    top: 0.25rem;
+    left: 0.5rem;
+    z-index: 4;
+    font-size: 0.625rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    color: var(--text-muted);
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-color);
+    padding: 0.05rem 0.4rem;
+    border-radius: 999px;
+    pointer-events: none;
+}
+
+.signal-row-original .signal-row-tag {
+    color: var(--text-secondary);
+}
+
+/* Amplitude gridlines (+1.0 / +0.5 / 0 / -0.5 / -1.0). Real, meaningful
+   levels while the absolute scale is on; hidden when the user switches
+   back to per-lane fit, where bar height no longer maps to a fixed
+   amplitude. */
+.amp-grid {
+    position: absolute;
+    inset: 0;
+    z-index: 3;
+    pointer-events: none;
+}
+
+.amp-grid.amp-grid-relative {
+    display: none;
+}
+
+.amp-grid-line {
+    position: absolute;
+    left: 0;
+    right: 0;
+    height: 1px;
+    background: rgba(255, 255, 255, 0.07);
+}
+
+.amp-grid-line.amp-grid-zero {
+    background: rgba(255, 255, 255, 0.18);
+}
+
+/* Keep the top (+1.0) and bottom (-1.0) labels inside the lane instead
+   of half-clipped by its edges. */
+.amp-grid-line:first-child .amp-grid-label {
+    top: 1px;
+}
+
+.amp-grid-line:last-child .amp-grid-label {
+    top: -11px;
+}
+
+.amp-grid-label {
+    position: absolute;
+    right: 6px;
+    top: -7px;
+    font-size: 0.5625rem;
+    color: rgba(255, 255, 255, 0.28);
+    font-variant-numeric: tabular-nums;
+}
+
+/* Numeric companion to the two stacked waveforms: what the operation
+   actually did to peak level, RMS level and length. */
+.signal-stats {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    padding: 0.3rem 0.65rem;
+    background: var(--bg-elevated);
+    border-top: 1px solid var(--border-color);
+    font-size: 0.6875rem;
+    color: var(--text-secondary);
+    font-variant-numeric: tabular-nums;
+}
+
+.signal-stat em {
+    font-style: normal;
+    color: var(--text-muted);
+    margin-right: 0.25rem;
+}
+
+/* Edited / Original playback-source switch in the lane header. */
+.track-source-toggle {
+    display: inline-flex;
+    border: 1px solid var(--border-color-strong);
+    border-radius: 999px;
+    overflow: hidden;
+    flex-shrink: 0;
+}
+
+.track-source-btn {
+    border: none;
+    background: transparent;
+    color: var(--text-muted);
+    font-size: 0.625rem;
+    font-weight: 600;
+    padding: 0.15rem 0.5rem;
+    cursor: pointer;
+    transition: background 0.12s ease, color 0.12s ease;
+}
+
+.track-source-btn:hover {
+    color: var(--text-primary);
+}
+
+.track-source-btn.active {
+    background: var(--track-color, var(--accent-primary));
+    color: #14121b;
+}
+
+.track-lane.playing-original .signal-row-original {
+    box-shadow: inset 0 0 0 1px var(--accent-primary);
+}
+
 /* Draggable clip-position layer: a thin horizontal strip below the
    waveform itself, showing the clip as a colored block the user can
    grab and drag left/right to change its timeline offset (see
@@ -599,27 +791,9 @@ body {
 .track-original-lane {
     /* Must match TRACK_ORIGINAL_HEIGHT in static/app.js -- same
        WaveSurfer-canvas-height-matching rule as .track-waveform above. */
-    height: 60px;
-    border-top: 1px solid var(--border-color);
-    background: var(--bg-tertiary);
+    height: 90px;
+    background: transparent;
     position: relative;
-}
-
-.track-original-lane::before {
-    content: "Original";
-    position: absolute;
-    top: 0.25rem;
-    left: 0.5rem;
-    font-size: 0.625rem;
-    font-weight: 600;
-    letter-spacing: 0.02em;
-    color: var(--text-muted);
-    background: var(--bg-elevated);
-    border: 1px solid var(--border-color);
-    padding: 0.05rem 0.4rem;
-    border-radius: 999px;
-    z-index: 3;
-    pointer-events: none;
 }
 
 .btn-add-track {

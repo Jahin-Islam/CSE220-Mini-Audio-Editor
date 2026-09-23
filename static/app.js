@@ -20,11 +20,26 @@
 // ============================================================================
 
 const TRACK_WAVE_HEIGHT = 90;       // must match .track-waveform's CSS height
-const TRACK_ORIGINAL_HEIGHT = 60;   // must match .track-original-lane's CSS height
+// The original lane is deliberately the SAME height as the edited one:
+// two signals drawn on one amplitude axis are only comparable if a
+// given amplitude is also the same number of pixels in both lanes.
+const TRACK_ORIGINAL_HEIGHT = TRACK_WAVE_HEIGHT;  // must match .track-original-lane's CSS height
 
 let tracks = {};            // trackId -> track state object, see makeTrackState()
 let selectedTrackId = null; // whichever track's lane is highlighted / menu-targeted
 let sessionSampleRate = null;
+
+// SIGNAL-COMPARISON DISPLAY MODE (see setAmplitudeScale()).
+// true  -> every lane is drawn against the SAME absolute amplitude axis
+//          (-1.0 .. +1.0 full scale), so "the edited signal is now half
+//          the amplitude of the original" is visible at a glance.
+// false -> WaveSurfer's own per-lane peak normalization (each lane's own
+//          loudest sample is stretched to full height), which looks nicer
+//          for very quiet clips but makes two lanes incomparable.
+// Absolute is the default precisely because this is a signals project:
+// the point of the display is comparing an operation's OUTPUT against its
+// INPUT, and per-lane normalization hides exactly that difference.
+let absoluteAmplitudeScale = true;
 
 // Shared playback engine (one AudioContext driving every track's
 // AudioBuffer in sync, rather than N independent <audio>/WaveSurfer
@@ -55,10 +70,21 @@ function makeTrackState(summary) {
         durationSeconds: summary.durationSeconds,
         wavesurfer: null,
         wavesurferOriginal: null,
-        comparisonMode: false,
+        comparisonMode: true,   // the original lane now sits permanently under
+                                 // the edited one (View > Show Original Lane can
+                                 // still hide it), instead of being an opt-in
+                                 // "compare" mode -- a processed signal is only
+                                 // meaningful next to the signal it came from.
         currentRegion: null,
         waveform: null,       // downsampled peaks, from upload/apply responses
         audioBuffer: null,    // decoded Web Audio buffer, for shared playback
+        originalAudioBuffer: null,   // decoded ORIGINAL (pre-edit) audio, so the
+                                      // original lane is playable from the marker
+                                      // exactly like the edited lane
+        originalDurationSeconds: null,
+        playbackSource: 'edited',    // 'edited' | 'original' -- which of the two
+                                      // lanes this track actually plays when the
+                                      // transport runs
         lastUndoLabel: null,  // cached from the last mutating call's response --
         lastRedoLabel: null,  // see refreshMenusForSelectedTrack()'s own comment
         includedInPlayback: true,  // separate from both `selected` (which track
@@ -134,6 +160,9 @@ function initializeMenuBar() {
 
     // View menu
     document.getElementById('menuToggleCompare').addEventListener('click', toggleComparison);
+    document.getElementById('menuAmplitudeScale').addEventListener('click', () => {
+        setAmplitudeScale(!absoluteAmplitudeScale);
+    });
 
     // Help menu
     document.getElementById('menuAbout').addEventListener('click', () => {
@@ -411,7 +440,12 @@ function createTrackWaveSurfer(trackId) {
         barGap: 1,
         barRadius: 1,
         height: TRACK_WAVE_HEIGHT,
-        normalize: true,
+        // normalize=false draws the bars against the true -1..+1 sample
+        // range instead of rescaling each lane to its own peak, so the
+        // edited lane and the original lane below it share one amplitude
+        // axis and an operation's effect on level is directly visible
+        // (see absoluteAmplitudeScale / setAmplitudeScale()).
+        normalize: !absoluteAmplitudeScale,
         backend: 'WebAudio',
         interact: false,  // shared playback drives the timeline; clicking a
                            // lane's waveform should select the track, not
@@ -454,6 +488,78 @@ function createTrackWaveSurfer(trackId) {
             updateSelectionInfo(region);
         }
     });
+}
+
+// The per-track ORIGINAL (pre-edit) waveform, drawn in its own lane
+// directly beneath the edited one. Same geometry and -- critically --
+// the same amplitude scaling as createTrackWaveSurfer() above, because
+// the entire point of the two stacked lanes is that their bar heights
+// mean the same thing.
+function createOriginalWaveSurfer(trackId) {
+    const track = tracks[trackId];
+    if (!track) return;
+
+    const container = document.querySelector(`#trackOriginal-${trackId}`);
+    if (!container) return;
+
+    if (track.wavesurferOriginal) {
+        track.wavesurferOriginal.destroy();
+    }
+
+    track.wavesurferOriginal = WaveSurfer.create({
+        container: container,
+        waveColor: makeWaveGradient(TRACK_ORIGINAL_HEIGHT, '#8a8792', '#4f4d58'),
+        progressColor: makeWaveGradient(TRACK_ORIGINAL_HEIGHT, '#a3a1b0', '#6b6976'),
+        cursorColor: '#ff6b6b',
+        barWidth: 2,
+        barGap: 1,
+        barRadius: 1,
+        height: TRACK_ORIGINAL_HEIGHT,
+        normalize: !absoluteAmplitudeScale,
+        backend: 'WebAudio',
+        interact: false
+    });
+}
+
+// Fetches the track's untouched original audio once and keeps it both
+// drawn (original lane) and decoded (originalAudioBuffer), so "play the
+// original from wherever the marker is" needs no extra round trip.
+async function loadOriginalToWaveSurfer(trackId) {
+    const track = tracks[trackId];
+    if (!track || !track.wavesurferOriginal) return;
+
+    try {
+        const response = await fetch(`/api/get_original?trackId=${encodeURIComponent(trackId)}`);
+        const data = await response.json();
+        if (!data.success) return;
+
+        await track.wavesurferOriginal.load(data.audioData);
+        track.originalAudioBuffer = await decodeAudioDataUrl(data.audioData);
+        track.originalDurationSeconds = track.originalAudioBuffer.duration;
+
+        layoutTrackLanes();
+        updateTrackStats(trackId);
+    } catch (error) {
+        console.error(`Error loading original audio for track ${trackId}:`, error);
+    }
+}
+
+// A faint horizontal grid (+1.0 / +0.5 / 0 / -0.5 / -1.0) drawn over a
+// waveform lane. With absolute scaling on, these lines are real
+// amplitude gridlines shared by both lanes, so the two signals can be
+// read against each other -- not just compared by eye.
+function addAmplitudeGrid(container) {
+    if (!container || container.querySelector('.amp-grid')) return;
+    const grid = document.createElement('div');
+    grid.className = 'amp-grid';
+    ['1.0', '0.5', '0', '0.5', '1.0'].forEach((label, i) => {
+        const line = document.createElement('div');
+        line.className = 'amp-grid-line' + (i === 2 ? ' amp-grid-zero' : '');
+        line.style.top = `${i * 25}%`;
+        line.innerHTML = `<span class="amp-grid-label">${i < 2 ? '+' : (i > 2 ? '−' : '')}${label}</span>`;
+        grid.appendChild(line);
+    });
+    container.appendChild(grid);
 }
 
 // ============================================================================
@@ -507,13 +613,36 @@ function renderTrackList() {
                 <span class="track-color-dot"></span>
                 <span class="track-name" title="${escapeHtml(track.name)}">${escapeHtml(track.name)}</span>
                 <span class="track-lane-header-spacer"></span>
+                <span class="track-source-toggle" data-track-id="${trackId}" title="Which signal this track plays from the marker">
+                    <button class="track-source-btn${track.playbackSource === 'edited' ? ' active' : ''}" data-source="edited">Edited</button>
+                    <button class="track-source-btn${track.playbackSource === 'original' ? ' active' : ''}" data-source="original">Original</button>
+                </span>
                 <span class="track-position-badge">${formatTime(track.startSeconds)} start</span>
                 <button class="track-mute-btn${track.muted ? ' muted' : ''}" data-track-id="${trackId}" title="Mute (excludes from mixdown)">M</button>
                 <button class="track-remove-btn" data-track-id="${trackId}" title="Remove track">✕</button>
             </div>
-            <div class="track-waveform" id="trackWaveform-${trackId}"></div>
+            <!-- SIGNAL STACK: processed output on top, the input it came
+                 from immediately below it, both on the same time axis and
+                 the same amplitude axis, so the operation itself is what
+                 the eye picks out. Each .signal-row is the full session
+                 timeline; the .wave-clip inside it is positioned/sized to
+                 the portion of that timeline the audio actually occupies
+                 (layoutTrackLanes()), which is what makes the marker line
+                 up with the samples under it. -->
+            <div class="signal-row signal-row-edited" data-track-id="${trackId}">
+                <span class="signal-row-tag">Edited (y[n])</span>
+                <div class="wave-clip" id="trackWaveClip-${trackId}">
+                    <div class="track-waveform" id="trackWaveform-${trackId}"></div>
+                </div>
+            </div>
+            <div class="signal-row signal-row-original" data-track-id="${trackId}" style="display: ${track.comparisonMode ? 'block' : 'none'};">
+                <span class="signal-row-tag">Original (x[n])</span>
+                <div class="wave-clip" id="trackOriginalClip-${trackId}">
+                    <div class="track-original-lane" id="trackOriginal-${trackId}"></div>
+                </div>
+            </div>
+            <div class="signal-stats" id="trackStats-${trackId}"></div>
             <div class="track-position-strip" id="trackPositionStrip-${trackId}"></div>
-            <div class="track-original-lane" id="trackOriginal-${trackId}" style="display: ${track.comparisonMode ? 'block' : 'none'};"></div>
         `;
 
         trackListEl.appendChild(lane);
@@ -537,6 +666,15 @@ function renderTrackList() {
             if (t) t.includedInPlayback = e.target.checked;
         });
 
+        // Edited / Original playback-source switch: which of the two
+        // stacked signals this track feeds to the shared transport.
+        lane.querySelectorAll('.track-source-btn').forEach((btn) => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                setTrackPlaybackSource(trackId, btn.dataset.source);
+            });
+        });
+
         lane.querySelector('.track-mute-btn').addEventListener('click', (e) => {
             e.stopPropagation();
             toggleTrackMute(trackId);
@@ -552,13 +690,282 @@ function renderTrackList() {
         // happens after appendChild() above, not before.
         createTrackWaveSurfer(trackId);
         loadAudioToWaveSurfer(trackId);
+        createOriginalWaveSurfer(trackId);
+        loadOriginalToWaveSurfer(trackId);
+
+        addAmplitudeGrid(lane.querySelector(`#trackWaveClip-${trackId}`));
+        addAmplitudeGrid(lane.querySelector(`#trackOriginalClip-${trackId}`));
+
+        // Click anywhere on either signal row to move the marker there
+        // (and start playing from there if the transport is running).
+        lane.querySelectorAll('.signal-row').forEach((row) => wireSeekOnElement(row, trackId));
 
         renderTrackPositionStrip(trackId);
     });
 
+    layoutTrackLanes();
     updateSharedPlayheadRange();
 }
 
+// ============================================================================
+// Lane geometry: every lane is the SAME time axis
+// ============================================================================
+// Each .signal-row spans the full session timeline (0 .. session
+// duration). The .wave-clip inside it is placed at the track's own
+// start offset and sized to its own duration, so a sample drawn at
+// x pixels is genuinely at the same instant in every lane -- which is
+// what lets one shared marker be correct for all of them, and what
+// makes the edited and original signals line up sample-for-sample
+// when nothing changed the duration.
+function layoutTrackLanes() {
+    const total = getSessionDurationSeconds();
+    if (total <= 0) return;
+
+    Object.values(tracks).forEach((track) => {
+        const place = (clipEl, durationSeconds, ws) => {
+            if (!clipEl || !durationSeconds) return;
+            const left = (track.startSeconds / total) * 100;
+            const width = Math.max((durationSeconds / total) * 100, 0.5);
+            const changed = clipEl.style.width !== `${width}%`;
+            clipEl.style.left = `${left}%`;
+            clipEl.style.width = `${width}%`;
+            // WaveSurfer sizes its canvas once at load time, so a clip
+            // that just changed width has to be told to redraw.
+            if (changed && ws) {
+                try { ws.drawBuffer(); } catch (e) { /* not loaded yet */ }
+            }
+        };
+
+        place(
+            document.getElementById(`trackWaveClip-${track.id}`),
+            track.durationSeconds,
+            track.wavesurfer
+        );
+        place(
+            document.getElementById(`trackOriginalClip-${track.id}`),
+            track.originalDurationSeconds || track.durationSeconds,
+            track.wavesurferOriginal
+        );
+    });
+}
+
+// ============================================================================
+// Marker (click-to-seek)
+// ============================================================================
+// Clicking anywhere on a lane, the ruler, or the clip strip moves the
+// shared marker to that instant -- and, if audio is already playing,
+// playback jumps there instead of continuing from the old position
+// (seekSharedPlayback() restarts the scheduled sources at the new
+// offset). A click is distinguished from a drag-selection / clip drag
+// by a small movement threshold, so dragging out a region never also
+// moves the marker.
+const SEEK_CLICK_SLOP_PX = 5;
+
+function wireSeekOnElement(element, trackId = null) {
+    if (!element || element.dataset.seekWired === '1') return;
+    element.dataset.seekWired = '1';
+
+    let downX = null;
+    let downY = null;
+
+    element.addEventListener('pointerdown', (e) => {
+        if (e.button !== 0) return;
+        if (e.target.closest('.track-clip-block')) return;  // that's a clip drag
+        downX = e.clientX;
+        downY = e.clientY;
+    });
+
+    element.addEventListener('pointerup', (e) => {
+        if (downX === null) return;
+        const moved = Math.hypot(e.clientX - downX, e.clientY - downY);
+        downX = downY = null;
+        if (moved > SEEK_CLICK_SLOP_PX) return;          // it was a drag
+        if (e.target.closest('.track-clip-block')) return;
+
+        const rect = element.getBoundingClientRect();
+        if (rect.width <= 0) return;
+        const fraction = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
+        const total = getSessionDurationSeconds();
+        if (total <= 0) return;
+
+        if (trackId) selectTrack(trackId);
+        seekSharedPlayback(fraction * total);
+    });
+}
+
+// ============================================================================
+// Playback source switch (edited vs original)
+// ============================================================================
+function setTrackPlaybackSource(trackId, source) {
+    const track = tracks[trackId];
+    if (!track || (source !== 'edited' && source !== 'original')) return;
+
+    track.playbackSource = source;
+
+    const lane = document.getElementById(`trackLane-${trackId}`);
+    if (lane) {
+        lane.querySelectorAll('.track-source-btn').forEach((btn) => {
+            btn.classList.toggle('active', btn.dataset.source === source);
+        });
+        lane.classList.toggle('playing-original', source === 'original');
+    }
+
+    // Switching mid-playback should be audible immediately, so re-arm
+    // the scheduled sources from the marker's current position rather
+    // than only taking effect at the next Play.
+    if (isPlaying) {
+        seekSharedPlayback(getCurrentPlayheadSeconds());
+    }
+
+    updateSharedPlayheadRange();
+    showToast(
+        source === 'original'
+            ? `"${track.name}" will play its ORIGINAL (unprocessed) signal`
+            : `"${track.name}" will play its EDITED signal`,
+        'info'
+    );
+}
+
+// ============================================================================
+// Signal comparison readout (original vs edited, in numbers)
+// ============================================================================
+// The stacked waveforms show the shape of an operation; these figures
+// pin down its size. Peak and RMS are computed over the actual decoded
+// buffers, in dBFS, alongside the change each one underwent.
+function measureBuffer(buffer) {
+    if (!buffer) return null;
+    let peak = 0;
+    let sumSquares = 0;
+    let count = 0;
+    for (let ch = 0; ch < buffer.numberOfChannels; ch++) {
+        const data = buffer.getChannelData(ch);
+        for (let i = 0; i < data.length; i++) {
+            const v = data[i];
+            const a = v < 0 ? -v : v;
+            if (a > peak) peak = a;
+            sumSquares += v * v;
+        }
+        count += data.length;
+    }
+    return {
+        peak,
+        rms: count ? Math.sqrt(sumSquares / count) : 0,
+        duration: buffer.duration
+    };
+}
+
+function toDb(value) {
+    if (!value || value <= 0) return '−∞';
+    return (20 * Math.log10(value)).toFixed(1);
+}
+
+function formatDelta(editedValue, originalValue) {
+    if (!originalValue || !editedValue) return '—';
+    const delta = 20 * Math.log10(editedValue / originalValue);
+    const sign = delta > 0 ? '+' : '';
+    return `${sign}${delta.toFixed(1)} dB`;
+}
+
+function updateTrackStats(trackId) {
+    const track = tracks[trackId];
+    const el = document.getElementById(`trackStats-${trackId}`);
+    if (!track || !el) return;
+
+    const edited = measureBuffer(track.audioBuffer);
+    const original = measureBuffer(track.originalAudioBuffer);
+    if (!edited && !original) {
+        el.innerHTML = '';
+        return;
+    }
+
+    const cell = (label, value) => `<span class="signal-stat"><em>${label}</em> ${value}</span>`;
+
+    el.innerHTML = [
+        cell('x[n] peak', original ? `${toDb(original.peak)} dBFS` : '—'),
+        cell('y[n] peak', edited ? `${toDb(edited.peak)} dBFS` : '—'),
+        cell('Δ peak', edited && original ? formatDelta(edited.peak, original.peak) : '—'),
+        cell('Δ RMS', edited && original ? formatDelta(edited.rms, original.rms) : '—'),
+        cell('length', edited && original
+            ? `${formatTime(original.duration)} → ${formatTime(edited.duration)}`
+            : '—'),
+    ].join('');
+}
+
+// ============================================================================
+// Amplitude scale toggle (View menu)
+// ============================================================================
+function setAmplitudeScale(absolute) {
+    absoluteAmplitudeScale = absolute;
+
+    Object.values(tracks).forEach((track) => {
+        [track.wavesurfer, track.wavesurferOriginal].forEach((ws) => {
+            if (!ws) return;
+            ws.params.normalize = !absolute;
+            try { ws.drawBuffer(); } catch (e) { /* nothing loaded yet */ }
+        });
+    });
+
+    document.querySelectorAll('.amp-grid').forEach((grid) => {
+        grid.classList.toggle('amp-grid-relative', !absolute);
+    });
+
+    const item = document.getElementById('menuAmplitudeScale');
+    if (item) {
+        item.classList.toggle('menu-option-active', absolute);
+        const label = document.getElementById('menuAmplitudeScaleLabel');
+        if (label) {
+            label.textContent = absolute
+                ? 'Amplitude Scale: Absolute (−1…+1)'
+                : 'Amplitude Scale: Fit each lane';
+        }
+    }
+
+    showToast(
+        absolute
+            ? 'Absolute amplitude scale — lanes are directly comparable'
+            : 'Per-lane fit — each lane is scaled to its own peak',
+        'info'
+    );
+}
+
+// ============================================================================
+// Timeline ruler (shared time axis above every lane; click to seek)
+// ============================================================================
+// m:ss is too coarse for short clips -- with a sub-second tick step it
+// prints the same label several times in a row, which reads as a broken
+// axis. Below 1s per tick, label in seconds with one decimal instead.
+function formatRulerTime(seconds, step) {
+    if (step < 1) return `${seconds.toFixed(1)}s`;
+    return formatTime(seconds);
+}
+
+function renderTimelineRuler() {
+    const ruler = document.getElementById('timelineRuler');
+    if (!ruler) return;
+
+    const total = getSessionDurationSeconds();
+    if (total <= 0) {
+        ruler.innerHTML = '';
+        ruler.style.display = 'none';
+        return;
+    }
+
+    ruler.style.display = 'block';
+
+    // ~10 ticks, snapped to a readable step.
+    const rawStep = total / 10;
+    const niceSteps = [0.1, 0.25, 0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300];
+    const step = niceSteps.find((s) => s >= rawStep) || 600;
+
+    let html = '';
+    for (let t = 0; t <= total + 1e-9; t += step) {
+        const left = (t / total) * 100;
+        html += `<span class="ruler-tick" style="left:${left}%"><i></i><b>${formatRulerTime(t, step)}</b></span>`;
+    }
+    ruler.innerHTML = html;
+
+    wireSeekOnElement(ruler);
+}
 // WaveSurfer normally decodes/loads audio itself via wavesurfer.load(url),
 // but every track's actual audio lives server-side keyed by trackId --
 // there is no single ambient "current audio" to hand it anymore.
@@ -649,10 +1056,28 @@ function getSharedAudioContext() {
 function getSessionDurationSeconds() {
     let maxEnd = 0;
     Object.values(tracks).forEach((t) => {
-        const end = t.startSeconds + t.durationSeconds;
+        const end = t.startSeconds + getTrackPlayDuration(t);
         if (end > maxEnd) maxEnd = end;
     });
     return maxEnd;
+}
+
+// How long this track occupies the timeline right now: the length of
+// whichever signal it is currently set to play (edited or original --
+// an edit like Trim or Speed makes the two differ), falling back to the
+// edited length.
+function getTrackPlayDuration(track) {
+    if (track.playbackSource === 'original' && track.originalDurationSeconds) {
+        return track.originalDurationSeconds;
+    }
+    return track.durationSeconds || 0;
+}
+
+// The AudioBuffer the transport should schedule for this track.
+function getTrackPlaybackBuffer(track) {
+    return track.playbackSource === 'original'
+        ? (track.originalAudioBuffer || track.audioBuffer)
+        : track.audioBuffer;
 }
 
 // Current playhead position, in seconds, whether or not playback is
@@ -686,6 +1111,11 @@ async function startSharedPlayback() {
         if (!t.audioBuffer) {
             await loadAudioToWaveSurfer(id);
         }
+        // A track set to play its ORIGINAL signal needs that buffer
+        // decoded too before anything is scheduled.
+        if (t.playbackSource === 'original' && !t.originalAudioBuffer) {
+            await loadOriginalToWaveSurfer(id);
+        }
     }));
 
     const contextStartTime = ctx.currentTime + 0.05;  // tiny lead-in so every
@@ -702,14 +1132,15 @@ async function startSharedPlayback() {
         // person play a subset of tracks together (or just one, by
         // unchecking all the others) without touching mute/export state
         // at all.
-        if (t.muted || !t.includedInPlayback || !t.audioBuffer) return;
+        const buffer = getTrackPlaybackBuffer(t);
+        if (t.muted || !t.includedInPlayback || !buffer) return;
 
-        const trackEnd = t.startSeconds + t.durationSeconds;
+        const trackEnd = t.startSeconds + buffer.duration;
         if (trackEnd <= startAt) return;  // this track has already fully
                                             // played out before the seek point
 
         const source = ctx.createBufferSource();
-        source.buffer = t.audioBuffer;
+        source.buffer = buffer;
         source.connect(ctx.destination);
 
         if (t.startSeconds >= startAt) {
@@ -808,6 +1239,8 @@ function updateSharedPlayheadPosition(seconds) {
 }
 
 function updateSharedPlayheadRange() {
+    layoutTrackLanes();
+    renderTimelineRuler();
     updateSharedPlayheadPosition(getCurrentPlayheadSeconds());
     updateTransportClock(getCurrentPlayheadSeconds());
 }
@@ -924,6 +1357,8 @@ function renderTrackPositionStrip(trackId) {
     stripEl.appendChild(block);
 
     wireClipBlockDrag(trackId, block, stripEl);
+    // Clicking the empty part of the strip is also a marker move.
+    wireSeekOnElement(stripEl, trackId);
 }
 
 function positionClipBlock(block, track, totalSeconds) {
@@ -1101,6 +1536,11 @@ async function loadAudioToWaveSurfer(trackId) {
             // this decodes the same audioData a second time, once, into
             // a form the shared engine can actually use.
             track.audioBuffer = await decodeAudioDataUrl(data.audioData);
+            track.durationSeconds = track.audioBuffer.duration;
+            // Both the lane geometry and the original-vs-edited readout
+            // depend on the buffer that just changed.
+            layoutTrackLanes();
+            updateTrackStats(trackId);
         }
     } catch (error) {
         console.error(`Error loading audio for track ${trackId}:`, error);
@@ -1702,44 +2142,23 @@ async function toggleComparison() {
     }
 
     track.comparisonMode = !track.comparisonMode;
-    const originalLane = document.getElementById(`trackOriginal-${track.id}`);
-    if (!originalLane) return;
+    const originalRow = document.querySelector(`#trackLane-${track.id} .signal-row-original`);
+    if (!originalRow) return;
 
     document.getElementById('menuToggleCompare').classList.toggle('menu-option-active', track.comparisonMode);
 
+    // The original lane is now built with the lane itself (see
+    // renderTrackList) and stays loaded, so this only shows/hides it --
+    // it never has to fetch or rebuild the waveform again.
     if (track.comparisonMode) {
-        originalLane.style.display = 'block';
-
+        originalRow.style.display = 'block';
         if (!track.wavesurferOriginal) {
-            // TRACK_ORIGINAL_HEIGHT must match .track-original-lane's CSS
-            // height -- same WaveSurfer-canvas-height-matching rule as
-            // every other waveform container in this app.
-            track.wavesurferOriginal = WaveSurfer.create({
-                container: originalLane,
-                waveColor: makeWaveGradient(TRACK_ORIGINAL_HEIGHT, '#8a8792', '#4f4d58'),
-                progressColor: makeWaveGradient(TRACK_ORIGINAL_HEIGHT, '#a3a1b0', '#6b6976'),
-                cursorColor: '#ff6b6b',
-                barWidth: 2,
-                barGap: 1,
-                barRadius: 1,
-                height: TRACK_ORIGINAL_HEIGHT,
-                normalize: true,
-                backend: 'WebAudio',
-                interact: false
-            });
+            createOriginalWaveSurfer(track.id);
+            await loadOriginalToWaveSurfer(track.id);
         }
-
-        try {
-            const response = await fetch(`/api/get_original?trackId=${encodeURIComponent(track.id)}`);
-            const data = await response.json();
-            if (data.success) {
-                await track.wavesurferOriginal.load(data.audioData);
-            }
-        } catch (error) {
-            console.error('Error loading original waveform:', error);
-        }
+        layoutTrackLanes();
     } else {
-        originalLane.style.display = 'none';
+        originalRow.style.display = 'none';
     }
 }
 
@@ -1932,12 +2351,29 @@ function showToast(message, type = 'info') {
 // update -> user still clicks Apply).
 // ============================================================================
 
+// Most sliders label themselves with an id of "<sliderId>Value", but a
+// few predate that convention (the Gain panel's readout is #gainValue,
+// not #gainSliderValue). Presets used to derive the label id purely
+// from the slider id, so picking a Gain preset moved the slider while
+// its dB readout stayed on the old number -- this map is the exception
+// list that keeps preset and readout in step.
+const SLIDER_LABEL_IDS = {
+    gainSlider: 'gainValue',
+};
+
+function labelIdForSlider(sliderId) {
+    return SLIDER_LABEL_IDS[sliderId] || `${sliderId}Value`;
+}
+
 function setSliderValue(sliderId, labelId, value) {
     const slider = document.getElementById(sliderId);
     if (!slider) return;
     slider.value = value;
-    const label = document.getElementById(labelId);
+    const label = document.getElementById(labelId || labelIdForSlider(sliderId));
     if (label) label.textContent = slider.value;
+    // Let anything else bound to this slider (live previews, the EQ
+    // curve drawing, etc.) react exactly as it would to a hand drag.
+    slider.dispatchEvent(new Event('input', { bubbles: true }));
 }
 
 const GAIN_PRESETS = {
@@ -2012,8 +2448,9 @@ function applyPresetValues(values) {
         if (!el) return;
         if (el.tagName === 'SELECT') {
             el.value = val;
+            el.dispatchEvent(new Event('change', { bubbles: true }));
         } else {
-            setSliderValue(fieldId, `${fieldId}Value`, val);
+            setSliderValue(fieldId, labelIdForSlider(fieldId), val);
         }
     });
 }
